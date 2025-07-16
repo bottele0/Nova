@@ -320,9 +320,9 @@ def change_default_wallet_keyboard(user_id):
     buttons = []
     wallets = get_user_wallets(user_id)
 
-    # Add W1 button
+    # Add W1 button (always default for now)
     buttons.append(
-        [InlineKeyboardButton("🟢 W1", callback_data="set_default_w1")])
+        [InlineKeyboardButton("🟢 W1 (Default)", callback_data="set_default_w1")])
 
     # Add created wallets as individual buttons
     for wallet_name in wallets:
@@ -373,9 +373,9 @@ def sniper_keyboard():
         ],
          [
              InlineKeyboardButton("🆕 New Task",
-                                  callback_data="popup_import_wallet"),
+                                  callback_data="sniper_new_task"),
              InlineKeyboardButton("🗑️ Delete Task",
-                                  callback_data="popup_import_wallet")
+                                  callback_data="sniper_delete_task")
          ],
          [
              InlineKeyboardButton("⬅️ Back to Menu",
@@ -392,7 +392,7 @@ def limit_orders_keyboard():
                                  [
                                      InlineKeyboardButton(
                                          "🗑️ Delete Task",
-                                         callback_data="popup_import_wallet")
+                                         callback_data="limit_delete_task")
                                  ]])
 
 
@@ -406,13 +406,13 @@ def copy_trade_keyboard():
         ],
          [
              InlineKeyboardButton("🆕 New Task",
-                                  callback_data="popup_import_wallet"),
+                                  callback_data="copy_new_task"),
              InlineKeyboardButton("🗑️ Delete Task",
-                                  callback_data="popup_import_wallet")
+                                  callback_data="copy_delete_task")
          ],
          [
              InlineKeyboardButton("⏩️ Mass Add",
-                                  callback_data="popup_import_wallet")
+                                  callback_data="copy_mass_add")
          ],
          [
              InlineKeyboardButton("⬅️ Back to Menu",
@@ -431,9 +431,9 @@ def afk_mode_keyboard():
         ],
          [
              InlineKeyboardButton("🆕 New Task",
-                                  callback_data="popup_import_wallet"),
+                                  callback_data="afk_new_task"),
              InlineKeyboardButton("🗑️ Delete Task",
-                                  callback_data="popup_import_wallet")
+                                  callback_data="afk_delete_task")
          ],
          [
              InlineKeyboardButton("⬅️ Back to Menu",
@@ -608,7 +608,7 @@ def referrals_keyboard_new():
         ],
          [
              InlineKeyboardButton("💳 Rewards Wallet: W1",
-                                  callback_data="popup_import_wallet")
+                                  callback_data="change_rewards_wallet")
          ],
          [
              InlineKeyboardButton("🎁 Change Referral Code",
@@ -1121,10 +1121,52 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in pending_token_requests:
         pending_token_requests.remove(user_id)
 
-        # Show popup message about wallet import
+        # Show invalid token address message
         await update.message.reply_text(
-            "You currently don't have any wallets imported. Please import one to do this.",
+            "Invalid token address. Please try again.",
         )
+        return
+
+    # Check if user is awaiting sniper token address
+    if user_id in user_data and user_data[user_id].get("awaiting_sniper_token"):
+        user_data[user_id]["awaiting_sniper_token"] = False
+        await update.message.reply_text(
+            "Invalid token address. Please try again.")
+        return
+
+    # Check if user is awaiting copy wallet address
+    if user_id in user_data and user_data[user_id].get("awaiting_copy_wallet"):
+        user_data[user_id]["awaiting_copy_wallet"] = False
+        wallet_address = message_text.strip()
+        
+        if len(wallet_address) < 20:
+            await update.message.reply_text(
+                "Invalid Solana address. Please try again.")
+        else:
+            await update.message.reply_text(
+                "Failed to fetch token data, Please try again later.")
+        return
+
+    # Check if user is awaiting mass add addresses
+    if user_id in user_data and user_data[user_id].get("awaiting_mass_add"):
+        user_data[user_id]["awaiting_mass_add"] = False
+        await update.message.reply_text(
+            "Failed to fetch token data. Please try again later.")
+        return
+
+    # Check if user is awaiting referral code
+    if user_id in user_data and user_data[user_id].get("awaiting_referral_code"):
+        user_data[user_id]["awaiting_referral_code"] = False
+        referral_code = message_text.strip()
+        
+        if len(referral_code) >= 6 and referral_code.isalnum():
+            # Update referral code (you could store this in user_data if needed)
+            user_data[user_id]["referral_code"] = referral_code
+            await update.message.reply_text(
+                f"✅ Referral code updated to: {referral_code}")
+        else:
+            await update.message.reply_text(
+                "Invalid referral code. Minimum 6 characters long and only letters or numbers.")
         return
 
     # Check if user is awaiting private key input
@@ -1217,28 +1259,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wallet_states[user_id]["awaiting_wallet_rename"] = False
         wallet_states[user_id]["wallet_to_rename"] = None
 
-        # Return to wallet settings
-        text = (
-            "💳 <b>Wallet Settings</b>\n\n"
-            "📚 <b>Need more help?</b> <a href='https://docs.tradeonnova.io/'>Click Here!</a>\n\n"
-            "🌐 <b>Create, manage and import wallets here.</b>\n\n"
-            "💳 <b>Your Solana Wallets:</b>\n\n"
-            f"→ <b>W1 (Default)</b> - <code>{user_balances.get(user_id, 0):.0f} SOL (${user_usd_balances.get(user_id, 0):.2f} USD)</code>\n"
-            f"<code>{WALLET_ADDRESS}</code>\n")
-
-        # Add created wallets
-        for wallet_name, wallet_data in wallets.items():
-            text += f"• <b>{wallet_name}</b> - <code>0 SOL ($0.00 USD)</code>\n<code>{wallet_data['address']}</code>\n"
-
-        text += (
-            "\n🔒 <b>Tip: Keep your Nova wallets secure by setting a Security Pin below.</b>\n\n"
-            "💡 <b>Select an option below.</b>\n\n"
-            f"🕒 <b>Last updated:</b> {current_time()}")
-
-        await update.message.reply_text(text=text,
-                                        parse_mode=ParseMode.HTML,
-                                        disable_web_page_preview=True,
-                                        reply_markup=wallets_keyboard())
+        # Show success message and return to wallet settings
+        await update.message.reply_text(
+            f"✅ Wallet renamed to '{new_name}' successfully!",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("⬅️ Back to Wallets",
+                                     callback_data="settings_wallets")
+            ]]))
         return
 
     # Check if user is awaiting withdrawal amount
@@ -1660,18 +1687,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Handle import position functionality
     if data == "popup_import_wallet":
-        # Check if this is from positions menu
+        # Check if this is from positions menu - first 6 buttons should only update time
         current_text = query.message.text.lower()
         if "positions" in current_text:
-            # Set user to await token address input for position import
-            if user_id not in user_data:
-                user_data[user_id] = {}
-            user_data[user_id]["awaiting_position_import"] = True
-            
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text="Enter the token address of the position you want to import.",
+            # Just refresh the positions menu with updated time
+            text = (
+                "💼 Nova Positions\n\n"
+                "📚 Need more help? <a href='https://docs.tradeonnova.io/modules/selling'>Click Here!</a>\n\n"
+                "• No positions found.\n\n"
+                f"🕒 Last Updated: {current_time()}")
+            await query.edit_message_text(
+                text=text,
+                reply_markup=positions_keyboard(),
                 parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
             )
             return
         else:
@@ -2472,13 +2501,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wallet_name = data.replace("withdraw_from_", "")
         if user_id not in wallet_states:
             wallet_states[user_id] = {}
-        wallet_states[user_id]["awaiting_withdrawal_amount"] = True
+        wallet_states[user_id]["awaiting_withdrawal_address"] = True
         wallet_states[user_id]["withdrawal_wallet"] = wallet_name
 
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=
-            "Please enter the amount you want to withdraw. (in SOL) - Example: 5"
+            text="Please enter the wallet address you would like to withdraw to."
         )
         return
 
@@ -2559,6 +2587,215 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
         )
+        return
+
+    # Handle sniper new task
+    if data == "sniper_new_task":
+        text = (
+            "💤 Nova AFK\n\n"
+            "• Raydium - Automatically buy into any new Raydium pools that are deployed based on your filters.\n"
+            "• Pump.Fun - Automatically buy into new tokens that are deployed on Pump.Fun based on your filters.\n\n"
+            "💡 Select an option below.")
+        await query.edit_message_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎯 Sniper", callback_data="sniper_raydium"),
+                 InlineKeyboardButton("💊 Pump.Fun Sniper", callback_data="sniper_pumpfun")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="lp_sniper")]
+            ]))
+        return
+
+    # Handle sniper task selection
+    if data in ["sniper_raydium", "sniper_pumpfun"]:
+        if user_id not in user_data:
+            user_data[user_id] = {}
+        user_data[user_id]["awaiting_sniper_token"] = True
+        
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Please send a token address.")
+        return
+
+    # Handle sniper delete task
+    if data == "sniper_delete_task":
+        text = (
+            "🗑️ Remove Sniper Task\n\n"
+            "• No active sniper tasks.\n\n"
+            "💡 Select a sniper task you want to delete.")
+        await query.edit_message_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🗑️ Delete All", callback_data="sniper_delete_all")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="lp_sniper")]
+            ]))
+        return
+
+    # Handle limit orders delete task
+    if data == "limit_delete_task":
+        text = (
+            "🗑️ Remove Limit Order\n\n"
+            "• No active limit orders.\n\n"
+            "💡 Select a limit order you want to delete.")
+        await query.edit_message_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🗑️ Delete All", callback_data="limit_delete_all")],
+                [InlineKeyboardButton("⬅️ Back to Limit Orders", callback_data="limit_orders")]
+            ]))
+        return
+
+    # Handle copy trade new task
+    if data == "copy_new_task":
+        if user_id not in user_data:
+            user_data[user_id] = {}
+        user_data[user_id]["awaiting_copy_wallet"] = True
+        
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Please send a wallet address you want to copy trades from.")
+        return
+
+    # Handle copy trade delete task
+    if data == "copy_delete_task":
+        text = (
+            "🗑️ Delete Copy Trade Task\n\n"
+            "• No copy trade tasks found.\n\n"
+            "💡 Select a copy trade task you want to delete.")
+        await query.edit_message_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🗑️ Delete All", callback_data="copy_delete_all")],
+                [InlineKeyboardButton("⬅️ Back to Tasks", callback_data="copy_trade")]
+            ]))
+        return
+
+    # Handle copy trade mass add
+    if data == "copy_mass_add":
+        if user_id not in user_data:
+            user_data[user_id] = {}
+        user_data[user_id]["awaiting_mass_add"] = True
+        
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Please enter a list of wallet addresses you want to copy trades from. Each address should be on a new line.")
+        return
+
+    # Handle AFK new task
+    if data == "afk_new_task":
+        text = (
+            "💤 Nova AFK\n\n"
+            "• Raydium - Automatically buy into any new Raydium pools that are deployed based on your filters.\n"
+            "• Pump.Fun - Automatically buy into new tokens that are deployed on Pump.Fun based on your filters.\n\n"
+            "💡 Select an option below.")
+        await query.edit_message_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💧 Raydium", callback_data="afk_raydium"),
+                 InlineKeyboardButton("💊 Pump.Fun", callback_data="afk_pumpfun")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="afk_mode")]
+            ]))
+        return
+
+    # Handle AFK delete task
+    if data == "afk_delete_task":
+        text = (
+            "🗑️ Remove AFK Task\n\n"
+            "• No active AFK tasks.\n\n"
+            "💡 Select a AFK task you want to delete.")
+        await query.edit_message_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🗑️ Delete All", callback_data="afk_delete_all")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="afk_mode")]
+            ]))
+        return
+
+    # Handle change rewards wallet
+    if data == "change_rewards_wallet":
+        wallets = get_user_wallets(user_id)
+        text = (
+            "💳 Change Rewards Wallet\n\n"
+            f"→ W1 (Default) - 0 SOL ($0.00 USD)\n"
+            f"{WALLET_ADDRESS}\n")
+        
+        # Add created wallets
+        for wallet_name, wallet_data in wallets.items():
+            text += f"• {wallet_name} - 0 SOL ($0.00 USD)\n{wallet_data['address']}\n"
+        
+        text += "\n💡 Select a wallet you wish to use for referral payouts."
+        
+        buttons = []
+        buttons.append([InlineKeyboardButton("W1 (Default)", callback_data="set_rewards_w1")])
+        for wallet_name in wallets:
+            buttons.append([InlineKeyboardButton(wallet_name, callback_data=f"set_rewards_{wallet_name}")])
+        buttons.append([InlineKeyboardButton("⬅️ Back", callback_data="referrals")])
+        
+        await query.edit_message_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(buttons))
+        return
+
+    # Handle change referral code
+    if data == "change_referral_code":
+        if user_id not in user_data:
+            user_data[user_id] = {}
+        user_data[user_id]["awaiting_referral_code"] = True
+        
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Please enter your new referral code. Minimum 6 characters long and only letters or numbers.")
+        return
+
+    # Handle delete all buttons - all go back to their respective menus
+    if data in ["sniper_delete_all", "limit_delete_all", "copy_delete_all", "afk_delete_all"]:
+        if data == "sniper_delete_all":
+            await query.edit_message_text(
+                text=(
+                    "🎯 Nova Sniper\n\n"
+                    "📚 Need more help? <a href='https://docs.tradeonnova.io/modules/sniper'>Click Here!</a>\n\n"
+                    "🌐 Snipe Pump.Fun migrating tokens and new Raydium pools.\n\n"
+                    "• No active sniper tasks.\n\n"
+                    "💡 Create and configure tasks below."),
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+                reply_markup=sniper_keyboard())
+        elif data == "limit_delete_all":
+            await query.edit_message_text(
+                text=(
+                    "📖 Nova Limit Orders\n\n"
+                    "🌐 Automatically trigger buy and sell trades when a token or position hits a certain market cap, price or profit level.\n\n"
+                    "• No active limit orders.\n\n"
+                    "💡 Orders can be created by pasting a token address."),
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+                reply_markup=limit_orders_keyboard())
+        elif data == "copy_delete_all":
+            await query.edit_message_text(
+                text=("🤖 Nova Copy Trade\n\n"
+                      "🌐 Utilize blazing fast copy-trading speeds with Nova.\n\n"
+                      "• No copy trade tasks found.\n\n"
+                      "💡 Create a task below."),
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+                reply_markup=copy_trade_keyboard())
+        elif data == "afk_delete_all":
+            await query.edit_message_text(
+                text=(
+                    "💤 Nova AFK\n\n"
+                    "📚 Need more help? <a href='https://docs.tradeonnova.io/modules/sniper'>Click Here!</a>\n\n"
+                    "🌐 Automatically buy into new Pump.Fun & Raydium tokens as soon as they launch based on your filters.\n\n"
+                    "• No active AFK tasks.\n\n"
+                    "💡 Create and configure tasks below."),
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+                reply_markup=afk_mode_keyboard())
         return
 
     # Handle new main menu buttons
